@@ -21,6 +21,16 @@ kuku_image = pygame.transform.scale(kuku_image, (100, 100))
 mindy_image = pygame.image.load("mindy.webp").convert_alpha()
 mindy_image = pygame.transform.scale(mindy_image, (100, 100))
 
+
+# Load the shield image
+shield_image = pygame.image.load("shield.webp").convert_alpha()  # Adjust filename as necessary
+shield_image = pygame.transform.scale(shield_image, (200, 200))  # Adjust size as necessary
+
+# Load and scale the saw image
+saw_image = pygame.image.load("saw.webp").convert_alpha()  # Replace "saw.webp" with your saw image file
+saw_image = pygame.transform.scale(saw_image, (100, 100))  # Scale to match character size, adjust as needed
+
+
 # Load music file to play in the background
 pygame.mixer.music.load("The_Clash_of_Titans.mp3")
 pygame.mixer.music.play(-1)
@@ -67,6 +77,11 @@ class Stoney:
         new_y = min(max(0, self.y + dy), height - self.height)
         self.x, self.y = new_x, new_y
 
+        #if stoney hits the bottom of the screen, move to the top
+        if self.y == height - self.height:
+            self.y = 0
+
+
     def get_rect(self):
         return pygame.Rect(self.x, self.y, self.width, self.height)
 
@@ -81,6 +96,22 @@ class Character:
         self.height = image.get_height()
         self.lives = 3
         self.collision_cooldown = 0  # Cooldown time remaining (in frames)
+        self.is_squashed = False
+        self.respawn_time = 0  # Time until respawn in milliseconds
+        self.show_shield = False  # New attribute for shield visibility
+        self.original_image = image
+        self.alternative_image = None 
+        self.angle = 0  # New attribute for rotation angle
+        self.is_transformed = False  # Indicates if transformed into saw
+
+    def transform_into_saw(self):
+       if not self.show_shield:  # Check if the shield is not active
+            self.is_transformed = not self.is_transformed
+            if self.is_transformed:
+                self.image = self.alternative_image
+            else:
+                self.image = self.original_image
+
 
     def apply_gravity(self):
         # Simple gravity simulation
@@ -93,8 +124,36 @@ class Character:
         new_y = min(max(0, self.y + dy), height - self.height)  # Prevent going past top and bottom edges
         self.x, self.y = new_x, new_y
 
+
+    def update_rotation(self):
+        # Update the rotation angle for a spinning effect
+        self.angle = (self.angle + 10) % 360  # Adjust rotation speed as needed
+
     def draw(self, screen):
-        screen.blit(self.image, (self.x, self.y))
+        
+        if self.show_shield:
+            # Calculate shield position to center it around the character
+            shield_x = self.x + self.width / 2 - shield_image.get_width() / 2
+            shield_y = self.y + self.height / 2 - shield_image.get_height() / 2
+            screen.blit(shield_image, (shield_x, shield_y))
+        elif self.image != self.original_image:
+            rotated_image = pygame.transform.rotate(self.image, self.angle)  # Rotate the image
+            new_rect = rotated_image.get_rect(center=self.image.get_rect(topleft=(self.x, self.y)).center)  # Calculate new rectangle
+            screen.blit(rotated_image, new_rect.topleft)  # Draw the rotated image
+        else:
+            screen.blit(self.image, (self.x, self.y))
+        
+        
+        if self.is_squashed and self.name == "kuku":
+            squashed_image = pygame.transform.scale(self.image, (self.width, self.height // 2))  # Example squashed appearance
+            screen.blit(squashed_image, (self.x, self.y + self.height // 2))  # Adjust position
+        elif not self.is_squashed and self.name == "kuku":
+            screen.blit(self.image, (self.x, self.y))
+
+      
+
+        
+
 
     #draw hearts in top left corner as the lives of the character
     def draw_lives(self, screen, full_heart, broken_heart):
@@ -116,6 +175,16 @@ class Character:
         if self.collision_cooldown > 0:
             self.collision_cooldown -= 1
 
+        if self.lives <= 0:
+            self.is_squashed = True
+            self.respawn_time = pygame.time.get_ticks() + 3000  # Set to respawn in 1 second
+            self.lives = 3  # Reset lives for respawn
+            
+        if self.is_squashed and pygame.time.get_ticks() >= self.respawn_time:
+            # Reset character state for respawn
+            self.is_squashed = False
+            self.x, self.y = width // 2, height // 2  # Example respawn position, adjust as needed  
+
 
 
 
@@ -126,6 +195,8 @@ font = pygame.font.Font('zekton.ttf', 32)
 # Create kuku and mindy objects
 kuku = Character("kuku", kuku_image, width // 2, height // 2)
 mindy = Character("mindy", mindy_image, width // 2 + 100, height // 2)
+mindy.alternative_image = saw_image
+
 
 # Create stoney object
 stoney = Stoney(stoney, width // 2 - 100, 100)
@@ -176,6 +247,14 @@ while running:
         elif event.type == pygame.KEYDOWN:  # Check for key presses
             if event.key == pygame.K_x:  # Switch active character
                 active_character = mindy if active_character == kuku else kuku
+            elif event.key == pygame.K_a:
+               if active_character.name == "mindy":  # Ensure this applies only to Mindy
+                if not mindy.is_transformed:  # Prevent activating the shield if transformed
+                    mindy.show_shield = not mindy.show_shield
+            elif event.key == pygame.K_y:
+            # Check if Mindy is the active character, then transform
+                if active_character == mindy:
+                    mindy.transform_into_saw()
             dx, dy = 0, 0
             if event.key == pygame.K_LEFT:
                 dx = -active_character.width
@@ -185,13 +264,19 @@ while running:
                 dy = -active_character.height  # Assuming you want up to move by height, adjust as needed
 
             # Apply the movement
-            active_character.move(dx, dy)
+            if dx != 0 or dy != 0:
+                active_character.move(dx, dy)
+                if active_character.image != active_character.original_image:
+                    active_character.update_rotation()
+
             active_character.update()
 
     # Check for collision
     if active_character.get_rect().colliderect(stoney.get_rect()) and active_character.collision_cooldown == 0:
-        active_character.lose_half_life()
-        active_character.collision_cooldown = 5
+        if not (active_character.show_shield and active_character.name == "mindy"):
+    
+            active_character.lose_half_life()
+            active_character.collision_cooldown = 5
 
     pygame.display.flip()
 
